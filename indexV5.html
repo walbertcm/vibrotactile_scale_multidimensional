@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matriz 3D Customizável — v8 (Estável)</title>
+    
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <style>
+        :root {
+            --bg: #0b0d10;
+            --panel: #141820;
+            --muted: #c7d0dd;
+        }
+        html, body {
+            height: 100%; margin: 0; background: var(--bg); color: var(--muted);
+            font: 14px/1.35 Inter, system-ui, Segoe UI, Roboto, Arial; overflow: hidden;
+        }
+        canvas { display: block; }
+        #ui {
+            position: fixed; inset: auto 12px 12px 12px; max-width: 420px;
+            background: var(--panel); border: 1px solid #202636; border-radius: 12px;
+            padding: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35); display: grid; gap: 8px;
+        }
+        #grid-inputs { display: grid; grid-template-columns: 1fr; gap: 8px; }
+        #grid-selection { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        #grid-style-inputs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        fieldset { border: 1px solid #2a3246; border-radius: 10px; padding: 8px; }
+        legend { padding: 0 6px; color: #aeb8ca; }
+        input[type="text"], select {
+            width: 100%; box-sizing: border-box; background: #0f1320; color: #e8eefc;
+            border: 1px solid #2a3246; border-radius: 8px; padding: 6px;
+        }
+        input[type="color"] { width: 36px; height: 28px; border: none; background: transparent; padding: 0; cursor: pointer; }
+        input[type="range"] { width: 100%; }
+        button {
+            padding: 8px 10px; border-radius: 10px; border: 1px solid #2a3246;
+            background: #0f1320; color: #e8eefc; cursor: pointer;
+        }
+        button:hover { border-color: #3b4663; }
+        .row { display: flex; gap: 8px; align-items: center; }
+        #list {
+            height: 120px; overflow: auto; background: #0b0e15; border: 1px solid #24304b;
+            border-radius: 8px; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            white-space: pre-wrap;
+        }
+        #counter { font-weight: 600; color: #e8eefc; }
+        .pill { padding: 2px 8px; border-radius: 999px; border: 1px solid #2a3246; background: #0f1320; }
+        .sep { height: 1px; background: #202636; margin: 4px 0; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <fieldset>
+        <legend>Valores dos Eixos (separados por vírgula)</legend>
+        <div id="grid-inputs">
+            <label>Valores de X <input id="valsX" type="text" value="3,4,5,6,7"/></label>
+            <label>Valores de Y <input id="valsY" type="text" value="11,12,13,14,15,16"/></label>
+            <label>Valores de Z <input id="valsZ" type="text" value="23,24,25,26,27,28"/></label>
+        </div>
+        <div class="sep"></div>
+        <div id="grid-style-inputs">
+            <label>Aresta <input id="edgeColor" type="color" value="#ff0000"/></label>
+            <label>Preench. <input id="fillColor" type="color" value="#19c37d"/></label>
+            <label>Fundo <input id="bgColor" type="color" value="#0b0d10"/></label>
+            <label>Forma
+                <select id="fillShape">
+                    <option value="cube">Cubo</option>
+                    <option value="sphere">Esfera</option>
+                </select>
+            </label>
+        </div>
+        <div class="row">
+            <label class="pill">Tamanho <input id="cubeSize" type="range" min="0.4" max="1.5" step="0.02" value="0.9"/></label>
+            <label class="pill">Gap <input id="gap" type="range" min="0.02" max="0.4" step="0.01" value="0.10"/></label>
+            <label class="pill">Larg. linha <input id="lineW" type="range" min="1" max="5" step="1" value="2"/></label>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Seleção de Corte Geométrico</legend>
+        <div id="grid-selection">
+            <label><input id="diag1" type="checkbox"> Diag (0,0,0 → max,max,max)</label>
+            <label><input id="diag2" type="checkbox"> Diag (0,0,max → max,max,0)</label>
+            <label><input id="diag3" type="checkbox"> Diag (0,max,0 → max,0,max)</label>
+            <label><input id="diag4" type="checkbox"> Diag (max,0,0 → 0,max,max)</label>
+            <label><input id="axisV" type="checkbox"> Eixo V (Completo)</label>
+            <label><input id="axisH" type="checkbox"> Eixo H (Completo)</label>
+            <label><input id="axisVEnds" type="checkbox"> Eixo V (Extremos)</label>
+            <label><input id="axisHEnds" type="checkbox"> Eixo H (Extremos)</label>
+        </div>
+        <div class="sep"></div>
+        <div class="row">
+            <span>Selecionadas: <span id="counter">0</span></span>
+            <button id="copy">Copiar lista</button>
+            <button id="clear">Limpar</button>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Labels</legend>
+        <div class="row">
+            <label><input id="showLabels" type="checkbox" checked> Mostrar</label>
+            <label class="pill">Offset <input id="lblOffset" type="range" min="0" max="1.2" step="0.02" value="0.45"/></label>
+            <label class="pill">Fonte (px) <input id="lblSize" type="range" min="8" max="28" step="1" value="12"/></label>
+        </div>
+    </fieldset>
+    
+    <fieldset>
+        <legend>Triplas selecionadas</legend>
+        <div id="list"></div>
+    </fieldset>
+</div>
+
+
+<script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    /* ========= Básico ========= */
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#0b0d10"); 
+    
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+    camera.position.set(9, 9, 11);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = .06;
+
+    /* ========= UI refs ========= */
+    const $ = id => document.getElementById(id);
+    const valsX = $('valsX'), valsY = $('valsY'), valsZ = $('valsZ');
+    const edgeColor = $('edgeColor'), fillColor = $('fillColor'), fillShape = $('fillShape'), bgColor = $('bgColor');
+    const cubeSize = $('cubeSize'), gap = $('gap'), lineW = $('lineW');
+    const diag1 = $('diag1'), diag2 = $('diag2'), diag3 = $('diag3'), diag4 = $('diag4');
+    const axisV = $('axisV'), axisH = $('axisH');
+    const axisVEnds = $('axisVEnds'), axisHEnds = $('axisHEnds');
+    const showLabels = $('showLabels'), lblOffset = $('lblOffset'), lblSize = $('lblSize');
+    const counter = $('counter'), list = $('list'), copyBtn = $('copy'), clearBtn = $('clear');
+
+    /* ========= Root ========= */
+    const root = new THREE.Group();
+    scene.add(root);
+
+    /* ========= Helpers ========= */
+    function disposeObject(obj){obj.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material){if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else o.material.dispose()}if(o.userData&&o.userData.canvasTex)o.userData.canvasTex.dispose()})}
+    function makeLabelSprite(text,color='#e5e7eb',px=12){const pX=8,pY=4;const f=`${px}px Inter, system-ui, Segoe UI, Roboto, Arial`;const c=document.createElement('canvas');const x=c.getContext('2d');x.font=f;const w=Math.ceil(x.measureText(text).width)+pX*2,h=px+pY*2;c.width=w;c.height=h;x.font=f;x.fillStyle='rgba(0,0,0,0.55)';x.fillRect(0,0,w,h);x.strokeStyle='rgba(255,255,255,0.25)';x.strokeRect(0.5,0.5,w-1,h-1);x.fillStyle=color;x.textBaseline='middle';x.fillText(text,pX,h/2);const t=new THREE.CanvasTexture(c);t.minFilter=THREE.LinearFilter;const m=new THREE.SpriteMaterial({map:t,depthTest:false,depthWrite:false});const s=new THREE.Sprite(m);const sc=0.52;s.scale.set((w/h)*sc,1*sc,1);s.userData.canvasTex=t;return s}
+    function bresenham3D(x1,y1,z1,x2,y2,z2){const p=[];let x=x1,y=y1,z=z1;const dx=Math.abs(x2-x1),dy=Math.abs(y2-y1),dz=Math.abs(z2-z1);const sx=(x1<x2)?1:-1,sy=(y1<y2)?1:-1,sz=(z1<z2)?1:-1;p.push([x,y,z]);if(dx>=dy&&dx>=dz){let e1=2*dy-dx,e2=2*dz-dx;while(x!==x2){if(e1>=0){y+=sy;e1-=2*dx}if(e2>=0){z+=sz;e2-=2*dx}e1+=2*dy;e2+=2*dz;x+=sx;p.push([x,y,z])}}else if(dy>=dx&&dy>=dz){let e1=2*dx-dy,e2=2*dz-dy;while(y!==y2){if(e1>=0){x+=sx;e1-=2*dy}if(e2>=0){z+=sz;e2-=2*dy}e1+=2*dx;e2+=2*dz;y+=sy;p.push([x,y,z])}}else{let e1=2*dx-dz,e2=2*dy-dz;while(z!==z2){if(e1>=0){x+=sx;e1-=2*dz}if(e2>=0){y+=sy;e2-=2*dz}e1+=2*dx;e2+=2*dy;z+=sz;p.push([x,y,z])}}return p}
+
+    /* ========= Estado ========= */
+    let group = null;
+    let meta = { Nx: 0, Ny: 0, Nz: 0, step: 1.0, size: 0.9, gap: 0.1 };
+    let selections = new Set();
+    let axisValues = { x: [], y: [], z: [] };
+    let cellObjects = []; // Array para guardar referências aos objetos de cada célula
+
+    function parseAxisValues(inputString) {
+        if (!inputString) return [];
+        return inputString.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+    }
+    
+    /* ========= Geometrias e Materiais Base ========= */
+    const base = {
+        boxGeo: null,
+        fillSphereGeo: null,
+        edgesGeo: null,
+        edgeMat: new THREE.LineBasicMaterial({ color: 0xff0000 }),
+        fillMat: new THREE.MeshBasicMaterial({ color: 0x19c37d, transparent: true, opacity: 0.42 }),
+    };
+
+    /* ========= Construção ========= */
+    function build() {
+        if (group) { root.remove(group); disposeObject(group); }
+        group = new THREE.Group();
+        root.add(group);
+        cellObjects = []; // Limpa o array de referências
+        
+        axisValues.x = parseAxisValues(valsX.value);
+        axisValues.y = parseAxisValues(valsY.value);
+        axisValues.z = parseAxisValues(valsZ.value);
+
+        const Nx = axisValues.x.length, Ny = axisValues.y.length, Nz = axisValues.z.length;
+        if (Nx === 0 || Ny === 0 || Nz === 0) { applySelections(); return; }
+
+        const size = parseFloat(cubeSize.value), gp = parseFloat(gap.value), step = size + gp;
+        meta = { Nx, Ny, Nz, step, size, gap: gp };
+
+        base.boxGeo?.dispose(); base.fillSphereGeo?.dispose(); base.edgesGeo?.dispose();
+        base.boxGeo = new THREE.BoxGeometry(size, size, size);
+        base.fillSphereGeo = new THREE.SphereGeometry(size / 2, 20, 16);
+        base.edgesGeo = new THREE.EdgesGeometry(base.boxGeo);
+
+        const labelsOn = showLabels.checked;
+        const ofs = parseFloat(lblOffset.value), fpx = parseInt(lblSize.value, 10);
+        
+        // Atualiza cores e materiais base uma vez
+        base.edgeMat.color.set(edgeColor.value);
+        base.edgeMat.linewidth = parseInt(lineW.value, 10);
+        base.fillMat.color.set(fillColor.value);
+
+        for (let ix = 0; ix < Nx; ix++) {
+            for (let iy = 0; iy < Ny; iy++) {
+                for (let iz = 0; iz < Nz; iz++) {
+                    const pos = new THREE.Vector3((ix - (Nx - 1) / 2) * step, (iy - (Ny - 1) / 2) * step, (iz - (Nz - 1) / 2) * step);
+                    const ijk = [ix, iy, iz];
+
+                    const edges = new THREE.LineSegments(base.edgesGeo, base.edgeMat);
+                    edges.position.copy(pos);
+                    
+                    const fill = new THREE.Mesh(base.boxGeo, base.fillMat); // Começa como Cubo
+                    fill.position.copy(pos);
+                    
+                    group.add(edges, fill);
+                    
+                    const cell = { ijk, edges, fill, label: null };
+
+                    if (labelsOn) {
+                        const valX = axisValues.x[ix], valY = axisValues.y[iy], valZ = axisValues.z[iz];
+                        const label = makeLabelSprite(`(${valX},${valY},${valZ})`, '#dfe7fb', fpx);
+                        const dir = pos.clone().normalize().multiplyScalar(ofs);
+                        label.position.copy(pos.clone().add(dir));
+                        group.add(label);
+                        cell.label = label;
+                    }
+                    cellObjects.push(cell);
+                }
+            }
+        }
+        
+        const extent = Math.max(Nx, Ny, Nz) * step;
+        camera.position.set(extent * 0.9, extent * 0.9, extent * 1.15);
+        controls.target.set(0, 0, 0);
+        controls.update();
+        
+        // Sincroniza a forma de preenchimento e aplica seleções
+        updateFillShape(); 
+        applySelections();
+    }
+    
+    // Função para trocar a geometria do preenchimento
+    function updateFillShape() {
+        const shape = fillShape.value;
+        const newGeo = (shape === 'sphere') ? base.fillSphereGeo : base.boxGeo;
+        cellObjects.forEach(cell => {
+            if (cell.fill.geometry !== newGeo) {
+                cell.fill.geometry = newGeo;
+            }
+        });
+    }
+
+    /* ========= Seleção & preenchimento ========= */
+    function cellKey(i, j, k) { return `${i},${j},${k}`; }
+
+    function applySelections() {
+        const { Nx, Ny, Nz } = meta;
+        if (Nx === 0 || Ny === 0 || Nz === 0) { selections.clear(); updateListAndCounter(); return; }
+
+        const activeCells = new Set();
+        const maxX = Nx - 1, maxY = Ny - 1, maxZ = Nz - 1;
+
+        if (diag1.checked) bresenham3D(0, 0, 0, maxX, maxY, maxZ).forEach(p=>activeCells.add(cellKey(p[0],p[1],p[2])));
+        if (diag2.checked) bresenham3D(0, 0, maxZ, maxX, maxY, 0).forEach(p=>activeCells.add(cellKey(p[0],p[1],p[2])));
+        if (diag3.checked) bresenham3D(0, maxY, 0, maxX, 0, maxZ).forEach(p=>activeCells.add(cellKey(p[0],p[1],p[2])));
+        if (diag4.checked) bresenham3D(maxX, 0, 0, 0, maxY, maxZ).forEach(p=>activeCells.add(cellKey(p[0],p[1],p[2])));
+        
+        const cx = Math.floor(maxX / 2), cy = Math.floor(maxY / 2), cz = Math.floor(maxZ / 2);
+        
+        if (axisV.checked) { for (let j = 0; j < Ny; j++) activeCells.add(cellKey(cx, j, cz)); }
+        if (axisH.checked) { for (let i = 0; i < Nx; i++) activeCells.add(cellKey(i, cy, cz)); }
+
+        if (axisVEnds.checked) {
+            activeCells.add(cellKey(cx, 0, cz));
+            if (maxY > 0) activeCells.add(cellKey(cx, maxY, cz));
+        }
+        if (axisHEnds.checked) {
+            activeCells.add(cellKey(0, cy, cz));
+            if (maxX > 0) activeCells.add(cellKey(maxX, cy, cz));
+        }
+
+        cellObjects.forEach(cell => {
+            const key = cellKey(...cell.ijk);
+            cell.fill.visible = activeCells.has(key);
+        });
+
+        selections = activeCells;
+        updateListAndCounter();
+    }
+
+    /* ========= Lista/contador ========= */
+    function updateListAndCounter() {
+        const arr = Array.from(selections).sort((a,b)=>{ const [ai,aj,ak]=a.split(',').map(Number);const [bi,bj,bk]=b.split(',').map(Number);if(ak!==bk)return ak-bk;if(aj!==bj)return aj-bj;return ai-bi});
+        counter.textContent = String(arr.length);
+        const valueList = arr.map(s => {
+            const [ix,iy,iz] = s.split(',').map(Number);
+            if(ix<axisValues.x.length && iy<axisValues.y.length && iz<axisValues.z.length) {
+                return `(${axisValues.x[ix]}, ${axisValues.y[iy]}, ${axisValues.z[iz]})`;
+            } return '';
+        }).filter(Boolean);
+        list.textContent = valueList.join(', ');
+    }
+    
+    function updateBackgroundColor() {
+        const color = bgColor.value;
+        document.documentElement.style.setProperty('--bg', color);
+        scene.background.set(color);
+    }
+
+    /* ========= Eventos ========= */
+    [valsX, valsY, valsZ, cubeSize, gap, lineW, edgeColor, fillColor, showLabels, lblOffset, lblSize].forEach(el => {
+        el.addEventListener('input', () => build());
+    });
+    fillShape.addEventListener('change', updateFillShape); // Evento separado para forma
+    
+    [diag1, diag2, diag3, diag4, axisV, axisH, axisVEnds, axisHEnds].forEach(el => {
+        el.addEventListener('change', () => applySelections());
+    });
+    
+    bgColor.addEventListener('input', updateBackgroundColor);
+    
+    copyBtn.addEventListener('click', async () => { /* ...código inalterado... */ });
+    clearBtn.addEventListener('click', () => {
+        [diag1, diag2, diag3, diag4, axisV, axisH, axisVEnds, axisHEnds].forEach(c => c.checked = false);
+        applySelections();
+    });
+    
+    // Listeners de copy/clear inalterados
+    copyBtn.addEventListener('click',async ()=>{if(!list.textContent)return;try{await navigator.clipboard.writeText(list.textContent);copyBtn.textContent='Copiado!';setTimeout(()=>copyBtn.textContent='Copiar lista',900)}catch(e){alert('Falha ao copiar.')}});
+
+    /* ========= Loop e Resize ========= */
+    function tick() {
+        requestAnimationFrame(tick);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    window.addEventListener('resize', () => {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+    });
+
+    /* ========= Inicial ========= */
+    build();
+    tick();
+
+</script>
+
+</body>
+</html>
